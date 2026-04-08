@@ -1,0 +1,21 @@
+scout_codigo,descricao,pontuacao
+G,Gol,8.0
+A,Assistência,5.0
+SG,Saldo de Gol (não sofrer gol),5.0
+DE,Defesa,3.0
+DP,Defesa de Pênalti,7.0
+DS,Desarme,1.5
+FS,Falta Sofrida,0.5
+FD,Finalização Defendida,1.0
+FF,Finalização para Fora,0.8
+FT,Finalização na Trave,3.0
+PS,Passe Decisivo,0.8
+PC,Passe Completo,0.3
+PP,Pré-Assistência,0.3
+V,Vitória,1.0
+I,Impedimento,-0.1
+FC,Falta Cometida,-0.5
+CA,Cartão Amarelo,-2.0
+CV,Cartão Vermelho,-5.0
+GC,Gol Contra,-5.0
+GS,Gol Sofrido,-2.0

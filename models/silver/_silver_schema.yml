@@ -1,0 +1,101 @@
+version: 2
+
+models:
+  - name: dim_clubes
+    description: "Dimensão com os 20 clubes do Brasileirão Série A"
+    columns:
+      - name: clube_id
+        description: "ID único do clube"
+        tests: [unique, not_null]
+      - name: nome
+        tests: [not_null]
+      - name: abreviacao
+        tests: [not_null]
+
+  - name: dim_posicoes
+    description: "Dimensão com as 6 posições do Cartola FC"
+    columns:
+      - name: posicao_id
+        tests: [unique, not_null]
+      - name: abreviacao
+        tests:
+          - accepted_values:
+              values: ['GOL', 'LAT', 'ZAG', 'MEI', 'ATA', 'TEC']
+
+  - name: dim_atletas
+    description: "Dimensão com o cadastro completo dos atletas"
+    columns:
+      - name: atleta_id
+        tests: [unique, not_null]
+      - name: posicao_id
+        tests:
+          - not_null
+          - relationships:
+              to: ref('dim_posicoes')
+              field: posicao_id
+      - name: clube_id
+        tests:
+          - not_null
+          - relationships:
+              to: ref('dim_clubes')
+              field: clube_id
+      - name: status_id
+        tests:
+          - accepted_values:
+              values: [2, 3, 5, 6, 7]
+
+  - name: dim_rodadas
+    description: "Dimensão com o calendário das 38 rodadas"
+    columns:
+      - name: rodada_id
+        tests: [unique, not_null]
+      - name: data_inicio
+        tests: [not_null]
+
+  - name: fct_atletas_rodada
+    description: "Fato principal — desempenho de cada atleta por rodada com scouts expandidos"
+    columns:
+      - name: atleta_id
+        tests: [not_null]
+      - name: rodada_id
+        tests: [not_null]
+      - name: posicao_id
+        tests:
+          - relationships:
+              to: ref('dim_posicoes')
+              field: posicao_id
+      - name: clube_id
+        tests:
+          - relationships:
+              to: ref('dim_clubes')
+              field: clube_id
+
+  - name: fct_partidas
+    description: "Fato com placares, resultados e aproveitamento dos clubes"
+    columns:
+      - name: partida_id
+        tests: [unique, not_null]
+      - name: rodada_id
+        tests: [not_null]
+      - name: resultado_mandante
+        tests:
+          - accepted_values:
+              values: ['V', 'E', 'D']
+              config:
+                where: "placar_mandante is not null"
+
+  - name: fct_mercado_status
+    description: "Histórico do estado do mercado (aberto, fechado, bola rolando)"
+    columns:
+      - name: rodada_atual
+        tests: [not_null]
+      - name: status_descricao
+        tests:
+          - accepted_values:
+              values: ['Aberto', 'Fechado', 'Em Manutenção', 'Fim de Rodada', 'Desconhecido']
+
+  - name: fct_destaques_rodada
+    description: "Mito da rodada e médias gerais de pontos e cartoletas"
+    columns:
+      - name: rodada_id
+        tests: [not_null]

@@ -1,0 +1,22 @@
+{% macro parse_scout_json(scout_col) %}
+    coalesce(cast(get_json_object({{ scout_col }}, '$.G')  as int), 0) as scout_gol,
+    coalesce(cast(get_json_object({{ scout_col }}, '$.A')  as int), 0) as scout_assistencia,
+    coalesce(cast(get_json_object({{ scout_col }}, '$.FT') as int), 0) as scout_finalizacao_trave,
+    coalesce(cast(get_json_object({{ scout_col }}, '$.FD') as int), 0) as scout_finalizacao_defendida,
+    coalesce(cast(get_json_object({{ scout_col }}, '$.FF') as int), 0) as scout_finalizacao_fora,
+    coalesce(cast(get_json_object({{ scout_col }}, '$.FS') as int), 0) as scout_falta_sofrida,
+    coalesce(cast(get_json_object({{ scout_col }}, '$.DS') as int), 0) as scout_desarme,
+    coalesce(cast(get_json_object({{ scout_col }}, '$.I')  as int), 0) as scout_impedimento,
+    coalesce(cast(get_json_object({{ scout_col }}, '$.SG') as int), 0) as scout_saldo_gol,
+    coalesce(cast(get_json_object({{ scout_col }}, '$.DE') as int), 0) as scout_defesa,
+    coalesce(cast(get_json_object({{ scout_col }}, '$.DP') as int), 0) as scout_defesa_penalti,
+    coalesce(cast(get_json_object({{ scout_col }}, '$.GC') as int), 0) as scout_gol_contra,
+    coalesce(cast(get_json_object({{ scout_col }}, '$.CA') as int), 0) as scout_cartao_amarelo,
+    coalesce(cast(get_json_object({{ scout_col }}, '$.CV') as int), 0) as scout_cartao_vermelho,
+    coalesce(cast(get_json_object({{ scout_col }}, '$.FC') as int), 0) as scout_falta_cometida,
+    coalesce(cast(get_json_object({{ scout_col }}, '$.PS') as int), 0) as scout_passe_decisivo,
+    coalesce(cast(get_json_object({{ scout_col }}, '$.PC') as int), 0) as scout_passe_completo,
+    coalesce(cast(get_json_object({{ scout_col }}, '$.PP') as int), 0) as scout_pre_assistencia,
+    coalesce(cast(get_json_object({{ scout_col }}, '$.V')  as int), 0) as scout_vitoria,
+    coalesce(cast(get_json_object({{ scout_col }}, '$.GS') as int), 0) as scout_gol_sofrido
+{% endmacro %}

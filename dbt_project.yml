@@ -1,0 +1,48 @@
+name: 'databrickssports'
+version: '1.0.0'
+
+profile: 'databrickssports'
+
+model-paths: ["models"]
+analysis-paths: ["analyses"]
+test-paths: ["tests"]
+seed-paths: ["seeds"]
+macro-paths: ["macros"]
+snapshot-paths: ["snapshots"]
+
+clean-targets:
+  - "target"
+  - "dbt_packages"
+
+vars:
+  catalog: cartola_fc
+  temporada: 2026
+
+models:
+  databrickssports:
+    bronze:
+      +materialized: view
+      +schema: bronze
+      +catalog: cartola_fc
+    silver:
+      +materialized: table
+      +schema: silver
+      +catalog: cartola_fc
+    gold:
+      +materialized: table
+      +schema: gold
+      +catalog: cartola_fc
+    models_ml:
+      +materialized: table
+      +schema: models
+      +catalog: cartola_fc
+
+seeds:
+  databrickssports:
+    +schema: bronze
+    +catalog: cartola_fc
+
+snapshots:
+  databrickssports:
+    +target_schema: silver
+    +target_database: cartola_fc

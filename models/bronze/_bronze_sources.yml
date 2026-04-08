@@ -1,0 +1,63 @@
+version: 2
+
+sources:
+  - name: bronze
+    database: cartola_fc
+    schema: bronze
+    description: "Dados brutos ingeridos diretamente das APIs públicas do Cartola FC"
+
+    tables:
+      - name: raw_atletas_mercado
+        description: "740+ atletas com scout, preço, média e status — endpoint /atletas/mercado"
+        columns:
+          - name: atleta_id
+            description: "ID único do atleta"
+            tests: [not_null]
+          - name: _rodada_captura
+            description: "Rodada em que o dado foi capturado"
+
+      - name: raw_atletas_pontuados
+        description: "Pontuação dos atletas na rodada em andamento — endpoint /atletas/pontuados"
+        columns:
+          - name: atleta_id
+            tests: [not_null]
+          - name: _rodada_id
+            tests: [not_null]
+
+      - name: raw_partidas
+        description: "Partidas da rodada com placares e aproveitamento — endpoint /partidas"
+        columns:
+          - name: partida_id
+            tests: [not_null]
+          - name: rodada_id
+            tests: [not_null]
+
+      - name: raw_clubes
+        description: "Cadastro dos 20 clubes do Brasileirão — endpoint /clubes"
+        columns:
+          - name: clube_id
+            tests: [not_null, unique]
+
+      - name: raw_rodadas
+        description: "Calendário das 38 rodadas — endpoint /rodadas"
+        columns:
+          - name: rodada_id
+            tests: [not_null, unique]
+
+      - name: raw_mercado_status
+        description: "Status do mercado (aberto/fechado/bola rolando) — endpoint /mercado/status"
+        columns:
+          - name: rodada_atual
+            tests: [not_null]
+
+      - name: raw_pos_rodada_destaques
+        description: "Mito da rodada e médias gerais — endpoint /pos-rodada/destaques"
+        columns:
+          - name: rodada_id
+            tests: [not_null]
+
+      - name: raw_ligas
+        description: "Ligas públicas disponíveis — endpoint /ligas"
+        columns:
+          - name: liga_id
+            tests: [not_null]

@@ -1,0 +1,28 @@
+version: 2
+
+sources:
+  - name: models_ml
+    database: cartola_fc
+    schema: models
+    tables:
+      - name: raw_previsoes_xgboost
+      - name: raw_previsoes_lightgbm
+      - name: raw_previsoes_poisson
+      - name: raw_previsao_final
+
+models:
+  - name: previsao_final
+    description: "Previsão final do meta-modelo com ranking por posição e custo-benefício (pontos/cartoleta)"
+    columns:
+      - name: atleta_id
+        tests: [not_null]
+      - name: rodada_alvo
+        tests: [not_null]
+      - name: pontuacao_prevista
+        tests:
+          - dbt_utils.expression_is_true:
+              expression: ">= 0"
+      - name: modelo_selecionado
+        tests:
+          - accepted_values:
+              values: ['xgboost', 'lightgbm', 'poisson', 'ensemble']

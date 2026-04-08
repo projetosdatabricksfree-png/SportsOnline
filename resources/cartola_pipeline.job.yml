@@ -1,0 +1,137 @@
+resources:
+  jobs:
+    cartola_pipeline:
+      name: "Cartola FC — Pipeline Completo"
+      description: "Pipeline ELT + ML do Cartola FC. Bronze → Silver → Gold → Modelos ML"
+
+      schedule:
+        quartz_cron_expression: "0 */15 * * * ?"
+        timezone_id: "America/Sao_Paulo"
+        pause_status: UNPAUSED
+
+      email_notifications:
+        on_failure:
+          - ${ALERT_EMAIL}
+
+      tasks:
+
+        # ── FASE 1: Ingestão Bronze ──────────────────────────────────────────
+        - task_key: ingestao_bronze
+          description: "Chama APIs Cartola FC e faz upsert nas tabelas Delta bronze.*"
+          notebook_task:
+            notebook_path: ./notebooks/01_ingestao_bronze.py
+            source: WORKSPACE
+          job_cluster_key: cartola_cluster
+          timeout_seconds: 600
+          retry_on_timeout: true
+          max_retries: 2
+
+        # ── FASE 2: dbt Bronze (stg_* views) ────────────────────────────────
+        - task_key: dbt_bronze
+          description: "Executa modelos stg_* da camada bronze"
+          depends_on:
+            - task_key: ingestao_bronze
+          dbt_task:
+            project_directory: .
+            profiles_directory: ~/.dbt
+            commands:
+              - "dbt seed --select seed_posicoes seed_pontuacao_scouts seed_classicos seed_status_atleta"
+              - "dbt run --select bronze"
+          job_cluster_key: cartola_cluster
+          timeout_seconds: 600
+
+        # ── FASE 3: dbt Silver (dim_* + fct_*) ──────────────────────────────
+        - task_key: dbt_silver
+          description: "Executa modelos dim_* e fct_* da camada silver"
+          depends_on:
+            - task_key: dbt_bronze
+          dbt_task:
+            project_directory: .
+            profiles_directory: ~/.dbt
+            commands:
+              - "dbt run --select silver"
+              - "dbt snapshot"
+              - "dbt test --select silver"
+          job_cluster_key: cartola_cluster
+          timeout_seconds: 900
+
+        # ── FASE 4: dbt Gold ─────────────────────────────────────────────────
+        - task_key: dbt_gold
+          description: "Executa modelos Gold (métricas + feature store) e roda testes"
+          depends_on:
+            - task_key: dbt_silver
+          dbt_task:
+            project_directory: .
+            profiles_directory: ~/.dbt
+            commands:
+              - "dbt build --select gold"
+          job_cluster_key: cartola_cluster
+          timeout_seconds: 1200
+
+        # ── FASE 5a: XGBoost (paralelo) ──────────────────────────────────────
+        - task_key: ml_xgboost
+          description: "Treina XGBoost e gera previsões para a próxima rodada"
+          depends_on:
+            - task_key: dbt_gold
+          notebook_task:
+            notebook_path: ./notebooks/02_ml_xgboost.py
+            source: WORKSPACE
+          job_cluster_key: cartola_ml_cluster
+          timeout_seconds: 1800
+
+        # ── FASE 5b: LightGBM (paralelo) ─────────────────────────────────────
+        - task_key: ml_lightgbm
+          description: "Treina LightGBM com SHAP e gera previsões"
+          depends_on:
+            - task_key: dbt_gold
+          notebook_task:
+            notebook_path: ./notebooks/03_ml_lightgbm.py
+            source: WORKSPACE
+          job_cluster_key: cartola_ml_cluster
+          timeout_seconds: 1800
+
+        # ── FASE 5c: Poisson (paralelo) ───────────────────────────────────────
+        - task_key: ml_poisson
+          description: "Treina Poisson-Bayesiano e gera previsões com intervalos de credibilidade"
+          depends_on:
+            - task_key: dbt_gold
+          notebook_task:
+            notebook_path: ./notebooks/04_ml_poisson.py
+            source: WORKSPACE
+          job_cluster_key: cartola_ml_cluster
+          timeout_seconds: 1800
+
+        # ── FASE 6: Meta-Modelo ───────────────────────────────────────────────
+        - task_key: meta_modelo
+          description: "Avalia coverage dos 3 modelos e gera previsão final"
+          depends_on:
+            - task_key: ml_xgboost
+            - task_key: ml_lightgbm
+            - task_key: ml_poisson
+          notebook_task:
+            notebook_path: ./notebooks/05_meta_modelo.py
+            source: WORKSPACE
+          job_cluster_key: cartola_cluster
+          timeout_seconds: 600
+
+      job_clusters:
+        # Cluster para tarefas de ingestão e dbt
+        - job_cluster_key: cartola_cluster
+          new_cluster:
+            spark_version: "15.4.x-scala2.12"
+            node_type_id: "i3.xlarge"
+            num_workers: 2
+            spark_conf:
+              spark.databricks.delta.preview.enabled: "true"
+            data_security_mode: SINGLE_USER
+            runtime_engine: PHOTON
+
+        # Cluster ML com mais memória para treino dos modelos
+        - job_cluster_key: cartola_ml_cluster
+          new_cluster:
+            spark_version: "15.4.x-ml-scala2.12"
+            node_type_id: "m5.2xlarge"
+            num_workers: 4
+            spark_conf:
+              spark.databricks.delta.preview.enabled: "true"
+            data_security_mode: SINGLE_USER

@@ -1,0 +1,6 @@
+status_id,descricao,disponivel
+2,Dúvida,false
+3,Suspenso,false
+5,Contundido,false
+6,Nulo,true
+7,Provável,true

@@ -1,0 +1,50 @@
+version: 2
+
+models:
+  - name: metricas_atleta_acumulado
+    description: "Visão consolidada do desempenho de cada atleta na temporada com métricas acumuladas e tendência"
+    columns:
+      - name: atleta_id
+        tests: [unique, not_null]
+      - name: consistencia_score
+        description: "Score de consistência: 1 = muito consistente, 0 = inconsistente"
+      - name: tendencia_pontos
+        tests:
+          - accepted_values:
+              values: ['subindo', 'estavel', 'caindo']
+
+  - name: tabela_brasileirao
+    description: "Classificação do Brasileirão calculada a partir das partidas registradas"
+    columns:
+      - name: clube_id
+        tests: [not_null]
+      - name: rodada_id
+        tests: [not_null]
+      - name: posicao
+        tests: [not_null]
+      - name: aproveitamento_percentual
+        tests:
+          - dbt_utils.expression_is_true:
+              expression: "between 0 and 100"
+
+  - name: metricas_clube_rodada
+    description: "Desempenho agregado por clube em cada rodada — pontos Cartola + resultado real"
+    columns:
+      - name: clube_id
+        tests: [not_null]
+      - name: rodada_id
+        tests: [not_null]
+
+  - name: feature_store_previsao
+    description: "Feature Store para os modelos preditivos — gerado pré-rodada, atualizado com pontuacao_real pós-rodada"
+    columns:
+      - name: atleta_id
+        tests: [not_null]
+      - name: rodada_alvo
+        tests: [not_null]
+      - name: mando_campo
+        tests:
+          - accepted_values:
+              values: ['casa', 'fora']
+              config:
+                where: "mando_campo is not null"

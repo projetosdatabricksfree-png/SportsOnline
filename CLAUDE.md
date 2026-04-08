@@ -1,126 +1,152 @@
-# CLAUDE.md
+# CLAUDE.md — Cartola FC Analytics Platform
 
-This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
+## Visão Geral
 
-## Project Overview
+Plataforma de ELT em tempo real para dados do **Cartola FC** (Fantasy Game do Brasileirão). Arquitetura **Medallion (Bronze → Silver → Gold)** no Databricks Unity Catalog, transformações via **dbt**, e 3 modelos preditivos + meta-modelo de ensemble para prever desempenho de atletas.
 
-**Databricks Sports** is a data transformation project built on **dbt core** for analyzing sports data. The codebase uses declarative SQL-based transformations with tests and documentation, deployed on Databricks.
+**Stack:**
+- Plataforma: Databricks (Unity Catalog)
+- Transformação: dbt-databricks (SQL declarativo)
+- Linguagem: Python (PySpark) + SQL
+- API Source: `api.cartola.globo.com` (sem auth)
+- Orquestração: Databricks Workflows + dbt
+- IDE: VS Code + Claude Code
 
-### Directory Structure
+---
+
+## Estrutura do Projeto
 
 ```
-DATABRICKS_SPORTS/
-├── projects/
-│   └── databricks-sports/          # Main dbt project (work here)
-│       ├── models/                 # dbt models (SQL transformations)
-│       ├── tests/                  # dbt data quality tests
-│       ├── macros/                 # Reusable SQL macros
-│       ├── seeds/                  # Static CSV data
-│       ├── snapshots/              # Slowly Changing Dimension configs
-│       ├── analyses/               # Exploratory SQL analysis
-│       ├── dbt_project.yml         # Main dbt configuration
-│       ├── profiles.yml            # Databricks connection config (local)
-│       └── logs/                   # dbt execution logs (gitignored)
-│
-├── .agents/                        # Official Databricks CLI skills and config
-│   └── skills/                     # Skills for use with Claude Code
-│
-├── .agent-instances/               # Legacy AI agent instances (can delete)
-│   ├── .claude/                    # Claude agent config
-│   ├── .goose/, .bob/, etc.        # Other agent configs (mostly unused)
-│   └── README.md                   # Agent documentation
-│
-├── skills/                         # Shared skill configuration (skills-lock.json)
-├── venv/                           # Python virtual environment (gitignored)
-└── README.md, STRUCTURE.md         # Project documentation
+Sports_Online_Databricks/
+├── models/
+│   ├── bronze/          # stg_* — ingestão bruta (1:1 com APIs)
+│   ├── silver/          # dim_* e fct_* — dados limpos e normalizados
+│   ├── gold/            # métricas agregadas e feature store para ML
+│   └── models_ml/       # previsões dos 3 modelos + previsao_final
+├── macros/              # parse_scout_json, calcular_resultado, coverage_score
+├── seeds/               # seed_posicoes, seed_pontuacao_scouts, seed_classicos
+├── snapshots/           # snap_preco_atletas (SCD Type 2)
+├── tests/
+├── dbt_project.yml
+└── PRD_Sports_Online.md # Requisitos completos com schemas, DDLs e arquitetura
 ```
 
-## Common Commands
+---
 
-**All dbt commands are run from `projects/databricks-sports/`**
+## Unity Catalog — Estrutura
+
+```
+catalog: cartola_fc
+├── schema: bronze    -- raw JSON → Delta (metadados: _raw_json, _ingestao_timestamp, _batch_id)
+├── schema: silver    -- dados tipados, enriquecidos, com constraints
+├── schema: gold      -- métricas acumuladas + feature_store_previsao (input dos modelos ML)
+└── schema: models    -- saídas dos modelos preditivos e meta-modelo
+```
+
+---
+
+## APIs da Cartola FC — Endpoints Sem Auth
+
+| Endpoint | Frequência | Tabela Bronze |
+|----------|-----------|---------------|
+| `/mercado/status` | Mudança de estado | `bronze.raw_mercado_status` |
+| `/atletas/mercado` | Por rodada (PRINCIPAL, 740+ atletas) | `bronze.raw_atletas_mercado` |
+| `/atletas/pontuados` | Durante/após jogos | `bronze.raw_atletas_pontuados` |
+| `/partidas` e `/partidas/{rodada}` | Por rodada | `bronze.raw_partidas` |
+| `/clubes` | Início temporada | `bronze.raw_clubes` |
+| `/rodadas` | Estático | `bronze.raw_rodadas` |
+| `/pos-rodada/destaques` | Pós-rodada | `bronze.raw_pos_rodada_destaques` |
+| `/ligas` | Dinâmico | `bronze.raw_ligas` |
+
+**Base URL:** `https://api.cartola.globo.com`
+
+---
+
+## Modelos dbt por Camada
+
+### Bronze (`stg_*`) — materialized: view
+`stg_atletas_mercado`, `stg_atletas_pontuados`, `stg_partidas`, `stg_clubes`, `stg_rodadas`, `stg_mercado_status`, `stg_pos_rodada_destaques`, `stg_ligas`
+
+### Silver (`dim_*`, `fct_*`) — materialized: table
+- Dims: `dim_clubes`, `dim_posicoes`, `dim_atletas`, `dim_rodadas`
+- Facts: `fct_atletas_rodada` (scout expandido, particionado por rodada_id), `fct_partidas`, `fct_mercado_status`, `fct_destaques_rodada`
+
+### Gold — materialized: table/incremental
+`metricas_atleta_acumulado`, `metricas_clube_rodada`, `tabela_brasileirao`, `feature_store_previsao` (particionado por rodada_alvo)
+
+### Models ML
+`previsoes_xgboost`, `previsoes_lightgbm`, `previsoes_poisson`, `previsao_final`
+
+---
+
+## Tabela de Scouts — Pontuação Cartola FC
+
+| Scout | Descrição | Pontos |
+|-------|-----------|--------|
+| G | Gol | +8.0 |
+| A | Assistência | +5.0 |
+| SG | Saldo de Gol (não sofrer) | +5.0 |
+| DE | Defesa (goleiro) | +3.0 |
+| DP | Defesa de Pênalti | +7.0 |
+| DS | Desarme | +1.5 |
+| FT | Finalização na Trave | +3.0 |
+| CA | Cartão Amarelo | -2.0 |
+| CV | Cartão Vermelho | -5.0 |
+| GC | Gol Contra | -5.0 |
+| FC | Falta Cometida | -0.5 |
+
+---
+
+## Modelos Preditivos
+
+```
+gold.feature_store_previsao
+        │
+   ┌────┴────┬────────────┐
+   │         │            │
+XGBoost  LightGBM  Poisson-Bayesiano
+   │         │            │
+   └────┬────┴────────────┘
+        │
+   META-MODELO (Stacking por Coverage Score)
+        │
+   previsao_final
+```
+
+**Meta-modelo** seleciona dinamicamente o melhor preditor por **coverage score** (% previsões dentro do threshold por posição) usando janela deslizante das últimas 3 rodadas.
+
+---
+
+## Comandos dbt
 
 ```bash
-cd projects/databricks-sports/
+# Ativar ambiente
+source venv/bin/activate
 
-# Install dbt dependencies (packages defined in packages.yml)
-dbt deps
+# Desenvolvimento
+dbt run                              # Todos os modelos
+dbt run --select bronze              # Só camada bronze
+dbt run --select +fct_atletas_rodada # Modelo + upstream
+dbt run --full-refresh               # Rebuild incrementais
 
-# Run all models (compile and execute SQL on Databricks)
-dbt run
+# Qualidade
+dbt test                             # Todos os testes
+dbt build                            # run + test em ordem DAG
 
-# Run only models with certain tags or selectors
-dbt run --select tag:daily        # By tag
-dbt run --select models/staging   # By path
-dbt run --select state:new+       # New + downstream
+# Debug
+dbt compile --select <modelo>        # Compila sem executar
+dbt debug                            # Testa conexão
+dbt parse                            # Valida estrutura
 
-# Run tests (data quality checks)
-dbt test
-
-# Run tests for specific models
-dbt test --select my_model
-
-# Generate documentation and lineage graph
-dbt docs generate
-dbt docs serve  # View at http://localhost:8000
-
-# Dry run (compile without executing)
-dbt compile --select my_model
-
-# Clean generated files (target/, dbt_packages/)
-dbt clean
-
-# Validate project structure and references
-dbt parse
-
-# Test a single model's path
-dbt test --select tests/data/my_test.sql
+# Docs
+dbt docs generate && dbt docs serve
 ```
 
-## Development Workflow
+---
 
-### Writing Models
+## Configuração Databricks
 
-Models are in `models/` subdirectories (e.g., `models/staging/`, `models/marts/`). Each `.sql` file in these folders is a model:
-
-- **Structure**: `{{ config(...) }} SELECT ...` at the top, then the SQL
-- **Materialization**: Controlled by `config()` or `dbt_project.yml`. Common types:
-  - `view` (default) — computed on-demand
-  - `table` — materialized and stored
-  - `incremental` — appends new rows, idempotent
-- **Ref function**: Use `{{ ref('model_name') }}` to reference other models (creates dependency graph)
-- **Source function**: Use `{{ source('source_name', 'table') }}` for raw Databricks tables
-
-### Adding Tests
-
-Tests go in `tests/`. Two types:
-
-1. **Generic tests** (in YAML): Reusable, typically in a `.yml` file alongside models
-   ```yaml
-   models:
-     - name: my_table
-       columns:
-         - name: id
-           tests:
-             - unique
-             - not_null
-   ```
-
-2. **Singular tests** (in SQL): Custom `.sql` files in `tests/`. One test per file.
-   ```sql
-   SELECT *
-   FROM {{ ref('my_model') }}
-   WHERE id IS NULL
-   ```
-
-### Using Macros
-
-Macros are reusable Jinja2 blocks in `macros/`. Call them with `{{ macro_name(...) }}`. Use for DRY logic across multiple models.
-
-## Architecture Insights
-
-### dbt Profile Configuration
-
-The `profile` in `dbt_project.yml` references `databrickssports`. Your local `~/.dbt/profiles.yml` (or project-level `profiles.yml`) must define:
+Perfil `databrickssports` em `~/.dbt/profiles.yml`:
 
 ```yaml
 databrickssports:
@@ -128,122 +154,36 @@ databrickssports:
   outputs:
     dev:
       type: databricks
-      host: [your-workspace-url]
-      http_path: [your-cluster-http-path]
-      token: [your-PAT-token]
+      host: [workspace-url]
+      http_path: [cluster-http-path]
+      token: [PAT-token]
+      catalog: cartola_fc
+      schema: bronze
       threads: 4
 ```
 
-**Never commit `profiles.yml`** to the repo — use environment variables or local git-ignored config.
-
-### Model Organization
-
-- **staging/** (`models/staging/`): Raw data cleaned/renamed, 1:1 with source tables
-- **marts/** (`models/marts/`): Business logic, aggregations, denormalizations for end users
-- **intermediate/** (optional): Reusable building blocks between staging and marts
-
-Follow this layering to keep transformations modular and testable.
-
-### Project Configuration
-
-`dbt_project.yml` defines:
-- `name: 'databrickssports'` — project name
-- `profile: 'databrickssports'` — which credentials to use
-- `model-paths`, `test-paths`, `macro-paths`, etc. — where dbt looks for files
-- `models:` config — default materialization, tags, and meta for all models
-- `clean-targets` — directories removed by `dbt clean`
-
-## AI Agent Instances
-
-The `.agent-instances/` folder contains configurations for various AI agents that were installed over time. These are mostly **legacy** and not actively used.
-
-### What Are These Agents?
-
-Each agent (Kiro, Goose, Claude, Bob, OpenHands, etc.) is a separate AI tool from different platforms:
-
-- **Kiro** — Automation agent (legacy)
-- **Goose** — Autonomous development agent (legacy)
-- **Claude** — Claude agent from Anthropic (potential use)
-- **OpenHands** — Open-source autonomous agent (potential use)
-- **Continue** — IDE extension for code assistance
-- **Windsurf** — Codeium's IDE agent
-- **Others** (.bob, .qwen, .cortex, .crush, etc.) — Legacy agents from various platforms
-
-### What Do They Do?
-
-Each agent:
-- Has its own **configuration folder** (cached settings, cache files, etc.)
-- Contains **symlinks** to the Databricks skills in `.agents/skills/`
-- Can be used independently with different tools/IDEs
-
-### Should You Keep Them?
-
-**Recommendation**: You can safely **delete `.agent-instances/`** if you:
-- Use **Claude Code** (cli or VS Code extension) — it's the native way to work with Claude
-- Don't use legacy agents like Kiro, Goose, Bob, etc.
-- Don't use Continue or other IDE extensions requiring those configs
-
-**Keep them only if** you actively use:
-- Continue IDE extension
-- Windsurf IDE
-- Claude agent in another workflow
-
-For details, see [`.agent-instances/README.md`](.agent-instances/README.md).
-
-## Databricks Skills Integration
-
-The project includes official Databricks CLI skills accessible via Claude Code slash commands:
-
-- **/databricks-core** — Authentication, workspace navigation, data exploration, CLI operations
-- **/databricks-pipelines** — Lakeflow Spark Declarative Pipelines (Delta Live Tables)
-- **/databricks-jobs** — Job scheduling and monitoring on Databricks
-- **/databricks-dabs** — Declarative Automation Bundles (infrastructure-as-code for Databricks)
-- **/databricks-apps** — Building dashboards and analytical applications
-- **/databricks-lakebase** — Postgres Autoscaling project and compute management
-- **/databricks-model-serving** — Model serving endpoints for inference
-
-Skills are in `.agents/skills/` for reference; invoke them via commands, not by editing the files directly.
-
-## Key Files
-
-| File | Purpose |
-|------|---------|
-| `dbt_project.yml` | Main dbt config: project name, profile, model paths, default configs |
-| `packages.yml` | (if exists) Third-party dbt packages to install via `dbt deps` |
-| `profiles.yml` (local) | Databricks credentials; **never commit** |
-| `sources.yml` | (if exists) Defines raw Databricks tables as dbt sources |
-| `schema.yml` | Column-level docs, generic tests, and model metadata |
-| `.gitignore` | Excludes `target/`, `dbt_packages/`, `logs/`, `venv/` |
-
-## Testing and Validation
-
-Run the full test suite before committing:
-
-```bash
-dbt run && dbt test
-```
-
-For CI/CD, lineage validation, or specific checks:
-
-```bash
-dbt parse                    # Validate YAML and Jinja2
-dbt test --fail-fast         # Stop on first failure
-dbt run --select state:modified+  # Run modified models + downstream (requires dbt Cloud artifacts)
-```
-
-## Troubleshooting
-
-- **Profile not found**: Check `~/.dbt/profiles.yml` or `profiles.yml` in the project root. Ensure the target name matches.
-- **Model not found**: Verify the ref is correct: `{{ ref('exact_model_name') }}`. dbt is case-sensitive on some databases.
-- **Test failures**: Run `dbt test --select failing_test --debug` for detailed SQL.
-- **Circular dependencies**: Use `dbt list --select +model_name` to visualize the lineage and find cycles.
-
-## Environment
-
-- **Python**: Project uses a virtual environment (`venv/`) — activate with `source venv/bin/activate`
-- **dbt version**: Specified in `dbt_project.yml` version, check `dbt --version` locally
-- **Databricks adapter**: Uses `dbt-databricks` adapter for SQL compilation and execution
+**Nunca commitar `profiles.yml`** com credenciais.
 
 ---
 
-**Last updated**: 2026-04-08 | **Agent instances organized**: 29 agent configs moved to `.agent-instances/`
+## Convenções
+
+- **Bronze** → prefixo `stg_`, `raw_` — dado bruto, sem transformação de negócio
+- **Silver** → prefixo `dim_` (dimensões) ou `fct_` (fatos) — dados tipados com constraints
+- **Gold** → sem prefixo padrão — métricas derivadas e feature store
+- **Scouts** no bronze ficam em `scout_json` (STRING); Silver expande para colunas `scout_*`
+- Metadados de ingestão: `_raw_json`, `_ingestao_timestamp`, `_batch_id`, `_rodada_captura`
+
+---
+
+## Skills Disponíveis
+
+| Skill | Quando usar |
+|-------|-------------|
+| `databricks-core` | Autenticação, CLI, navegação de clusters |
+| `databricks-pipelines` | Lakeflow / Delta Live Tables |
+| `databricks-jobs` | Agendamento de workflows |
+| `databricks-dabs` | Declarative Automation Bundles |
+| `dbt-transformation-patterns` | Padrões de modelos, testes, incrementais |
+
+> Consulte `PRD_Sports_Online.md` para schemas completos de APIs, DDLs completas das tabelas e detalhes dos algoritmos ML.
