@@ -2,33 +2,27 @@ bundle:
   name: cartola_fc_pipeline
 
 variables:
-  catalog: cartola_fc
-  schema_bronze: bronze
-  schema_silver: silver
-  schema_gold: gold
-  schema_models: models
+  catalog:
+    default: cartola_fc
+  schema_bronze:
+    default: bronze
+  schema_silver:
+    default: silver
+  schema_gold:
+    default: gold
+  schema_models:
+    default: models
 
 workspace:
-  host: ${DATABRICKS_HOST}
-
-artifacts:
-  dbt_project:
-    type: dbt
-    project_directory: .
-    profiles_directory: ~/.dbt
+  host: https://dbc-44d30137-2797.cloud.databricks.com
+  profile: teste
 
 targets:
   dev:
     mode: development
-    workspace:
-      host: ${DATABRICKS_HOST}
 
   prod:
     mode: production
-    workspace:
-      host: ${DATABRICKS_HOST}
-    run_as:
-      service_principal_name: ${DATABRICKS_SP_NAME}
 
 include:
   - resources/cartola_pipeline.job.yml
