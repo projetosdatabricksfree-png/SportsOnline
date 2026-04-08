@@ -1,0 +1,49 @@
+# Python
+venv/
+__pycache__/
+*.py[cod]
+*$py.class
+*.egg-info/
+dist/
+build/
+
+# dbt
+projects/databricks-sports/logs/
+projects/databricks-sports/target/
+projects/databricks-sports/dbt_packages/
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Local configuration
+.env
+.env.local
+dbt_profiles.yml
+
+# Other agents/IDEs config (keep only what you use)
+.goose/
+.mux/
+.roo/
+.adal/
+.junie/
+.bob/
+.kilocode/
+.neovate/
+.crush/
+.cortex/
+.qoder/
+.factory/
+.iflow/
+.vibe/
+.windsurf/
+.kode/
+.zencoder/
+.kiro/
